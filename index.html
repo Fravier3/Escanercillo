@@ -1,102 +1,121 @@
 <!doctype html>
 <html lang="es">
 <head>
-  <meta charset="UTF-8">
+  <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#101b30">
+  <meta name="theme-color" content="#201a31">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black">
-  <meta name="description" content="Escanea y corrige documentos en tu dispositivo. Guarda varias páginas en un PDF.">
+  <meta name="apple-mobile-web-app-title" content="Archivo PDF">
+  <meta name="description" content="Abre, organiza, firma y exporta PDF desde tu iPhone.">
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png">
-  <link rel="icon" type="image/png" href="./icons/icon-192.png">
-  <title>Escanercillo</title>
+  <link rel="icon" href="./icons/icon-192.png">
+  <title>Archivo PDF</title>
 </head>
 <body>
-  <header class="masthead">
+  <header class="mast">
     <div class="mast-inner">
-      <a class="brand" href="./" aria-label="Escanercillo, inicio">
-        <img src="./icons/icon-192.png" alt="" width="36" height="36">
-        <span>Escanercillo</span>
-      </a>
-      <span class="local-tag"><i></i> Procesamiento local</span>
+      <div class="brand"><img src="./icons/icon-192.png" alt="" width="38" height="38"><span>Archivo PDF</span></div>
+      <button id="advanced" class="mast-action">Edición avanzada</button>
     </div>
   </header>
-  <main class="workspace">
-    <section id="home" class="home">
-      <div class="intro">
-        <div class="eyebrow">ESCÁNER DE DOCUMENTOS</div>
-        <h1>Escanea tus<br>documentos<span>.</span></h1>
-        <p>Captura tus hojas, corrige los bordes automáticamente y guárdalas en un solo PDF.</p>
-        <div class="actions">
-          <button id="scan" class="primary">Escanear ahora</button>
-          <button id="import" class="secondary">Importar fotos</button>
+  <main>
+    <section id="welcome" class="welcome">
+      <div class="welcome-copy">
+        <h1>Tu espacio<br>para PDF<span>.</span></h1>
+        <p>Abre un documento, organiza sus páginas y firma desde tu teléfono.</p>
+        <div class="buttons">
+          <button class="action" id="open">Abrir PDF</button>
+          <button class="secondary" id="from-images">Fotos a PDF</button>
         </div>
       </div>
-      <div class="visual" aria-hidden="true">
-        <div class="back-paper"></div>
-        <div class="paper"><div class="fold"></div><i></i><i></i><i></i><i></i><i></i><i></i></div>
-        <div class="brackets"><i></i><i></i><i></i><i></i></div>
-        <div class="scan-line"></div>
+      <div class="illustration" aria-hidden="true">
+        <div class="orbit"></div><div class="sheet behind"></div>
+        <div class="sheet front"><div class="corner"></div><i></i><i></i><i></i><i></i><span>PDF</span></div>
       </div>
     </section>
-    <section id="editing" hidden aria-label="Documento en edición">
-      <div class="edit-header">
-        <div><div class="eyebrow">DOCUMENTO</div><h1>Revisar escaneo</h1></div>
-        <button id="add" class="secondary">Añadir páginas</button>
+    <section id="editor" hidden>
+      <div class="document-head">
+        <div class="document-label"><h1 id="file-name"></h1><p id="file-count"></p></div>
+        <button class="secondary compact" id="new">Abrir otro</button>
       </div>
       <div class="editor-grid">
-        <section class="preview-shell" aria-label="Vista previa">
-          <div id="preview" class="preview"></div>
-          <div class="preview-bar">
-            <span id="page-label"></span>
-            <button id="crop" class="text-btn">Ajustar bordes</button>
+        <section class="viewer" aria-label="Vista previa del PDF">
+          <div class="page-nav">
+            <button id="prev-page" class="circle" aria-label="Página anterior">‹</button>
+            <div id="page-number" aria-live="polite"></div>
+            <button id="next-page" class="circle" aria-label="Página siguiente">›</button>
           </div>
-        </section>
-        <section class="editor-controls" aria-label="Ajustes de escaneo">
-          <h2>Filtro</h2>
-          <div id="filters" class="filters"></div>
-          <h2>Páginas <span id="page-count"></span></h2>
-          <div id="pages" class="pages"></div>
-          <div class="page-actions">
-            <button id="left" class="text-btn">Mover antes</button>
-            <button id="right" class="text-btn">Mover después</button>
-            <button id="rotate" class="text-btn">Girar</button>
-            <button id="remove" class="text-btn danger">Quitar</button>
+          <div id="canvas-area">
+            <div id="paper"><canvas id="document-canvas" aria-label="Página del PDF"></canvas><button id="placement" hidden aria-label="Colocar en el centro de la página"></button></div>
           </div>
-          <button id="export" class="primary export">Guardar PDF</button>
-          <div id="result" class="result" hidden></div>
+          <p id="placement-help" hidden>Toca la página para colocar el elemento.</p>
         </section>
+        <aside class="tools" aria-label="Herramientas del documento">
+          <h2>Editar documento</h2>
+          <div class="tool-grid">
+            <button id="pages">Organizar páginas</button><button id="append">Combinar PDF</button>
+            <button id="sign">Firmar</button><button id="text">Añadir texto</button>
+            <button id="extract">Extraer páginas</button><button id="compress">Comprimir</button>
+          </div>
+          <div class="history">
+            <button id="undo" class="quiet">Deshacer</button>
+            <button id="cancel-placement" class="quiet" hidden>Cancelar colocación</button>
+          </div>
+          <div class="export-actions">
+            <button id="save" class="action">Guardar PDF</button>
+            <button id="share" class="secondary" hidden>Compartir</button>
+          </div>
+          <div id="download-extra" hidden></div>
+        </aside>
       </div>
     </section>
     <p id="status" role="status" aria-live="polite" hidden></p>
   </main>
-  <footer class="footer">Tus fotos permanecen en este dispositivo. <span id="version">v1.1</span></footer>
-  <input id="photo-input" type="file" accept="image/*" multiple hidden>
-  <input id="camera-input" type="file" accept="image/*" capture="environment" hidden>
-  <dialog id="add-dialog" aria-labelledby="add-title">
-    <div class="dialog-title"><h2 id="add-title">Añadir páginas</h2><button class="close" aria-label="Cerrar" data-close>×</button></div>
-    <div class="dialog-actions">
-      <button id="add-camera" class="primary">Tomar foto</button>
-      <button id="add-import" class="secondary">Importar fotos</button>
+  <footer>Procesamiento en tu dispositivo <span>Archivo PDF · 1.0</span></footer>
+  <input id="pdf-input" type="file" accept=".pdf,application/pdf" multiple hidden>
+  <input id="image-input" type="file" accept="image/*" multiple hidden>
+
+  <dialog id="pages-dialog" aria-labelledby="pages-title">
+    <div class="dialog-head"><h2 id="pages-title">Organizar páginas</h2><button data-close class="circle" aria-label="Cerrar">×</button></div>
+    <p class="hint">Selecciona una página para moverla, girarla o quitarla.</p>
+    <div id="page-list"></div>
+    <div class="page-edit tool-grid">
+      <button id="move-left">Mover antes</button><button id="move-right">Mover después</button>
+      <button id="rotate">Girar 90°</button><button id="remove" class="danger">Quitar página</button>
     </div>
   </dialog>
-  <dialog id="camera-dialog" aria-labelledby="camera-title">
-    <div class="dialog-title"><h2 id="camera-title">Cámara</h2><button class="close" aria-label="Cerrar" data-close>×</button></div>
-    <video id="video" muted autoplay playsinline></video>
-    <div class="dialog-actions">
-      <button id="capture" class="primary" disabled>Capturar</button>
-      <button id="native-camera" class="secondary">Cámara del dispositivo</button>
-    </div>
+  <dialog id="sign-dialog" aria-labelledby="sign-title">
+    <div class="dialog-head"><h2 id="sign-title">Dibuja tu firma</h2><button data-close class="circle" aria-label="Cerrar">×</button></div>
+    <canvas id="signature-pad" width="720" height="250" aria-label="Espacio para dibujar la firma"></canvas>
+    <p id="signature-error" class="hint" role="alert" hidden></p>
+    <div class="buttons"><button id="use-sign" class="action">Colocar firma</button><button id="clear-sign" class="secondary">Limpiar</button></div>
   </dialog>
-  <dialog id="crop-dialog" aria-labelledby="crop-title">
-    <div class="dialog-title"><h2 id="crop-title">Ajustar bordes</h2><button class="close" aria-label="Cerrar" data-close>×</button></div>
-    <p class="dialog-help">Arrastra las cuatro esquinas hasta el borde de la hoja.</p>
-    <div id="crop-stage" class="crop-stage"></div>
-    <div class="dialog-actions">
-      <button id="crop-apply" class="primary">Aplicar recorte</button>
-      <button id="crop-reset" class="secondary">Imagen completa</button>
-    </div>
+  <dialog id="text-dialog" aria-labelledby="text-title">
+    <div class="dialog-head"><h2 id="text-title">Añadir texto</h2><button data-close class="circle" aria-label="Cerrar">×</button></div>
+    <form id="text-form">
+      <label for="text-value">Texto nuevo</label><input id="text-value" required maxlength="160" placeholder="Escribe aquí">
+      <button type="submit" class="action">Colocar texto</button>
+    </form>
+  </dialog>
+  <dialog id="extract-dialog" aria-labelledby="extract-title">
+    <div class="dialog-head"><h2 id="extract-title">Extraer páginas</h2><button data-close class="circle" aria-label="Cerrar">×</button></div>
+    <form id="extract-form">
+      <label for="range">Páginas del nuevo PDF</label><input id="range" required placeholder="1, 3-5">
+      <button type="submit" class="action">Crear PDF separado</button>
+    </form>
+  </dialog>
+  <dialog id="compress-dialog" aria-labelledby="compress-title">
+    <div class="dialog-head"><h2 id="compress-title">Comprimir PDF</h2><button data-close class="circle" aria-label="Cerrar">×</button></div>
+    <p class="hint">Crea una copia ligera convirtiendo las páginas en imágenes. El texto de la copia deja de ser seleccionable.</p>
+    <button class="action" id="run-compress">Crear copia ligera</button>
+  </dialog>
+  <dialog id="advanced-dialog" class="advanced" aria-labelledby="advanced-title">
+    <div class="dialog-head"><div><h2 id="advanced-title">PdfCraft</h2><p class="hint">Edición avanzada</p></div><button id="close-advanced" class="circle" aria-label="Volver a Archivo PDF">×</button></div>
+    <p id="advanced-status" role="status" aria-live="polite">Cargando el motor de PdfCraft…</p>
+    <button id="advanced-retry" class="secondary" hidden>Probar modo compatible</button>
+    <iframe id="craft-frame" title="Editor avanzado PdfCraft" allow="fullscreen; clipboard-read; clipboard-write"></iframe>
   </dialog>
   <script type="module" src="./src/app.js"></script>
 </body>

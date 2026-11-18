@@ -1,59 +1,45 @@
 import { createHash } from 'node:crypto';
-import { readFileSync } from 'node:fs';
+import { cpSync, mkdirSync, readFileSync } from 'node:fs';
 import { defineConfig } from 'vite';
 
-const runtimeFiles = new Map([
-  ['vision-worker.js', readFileSync(new URL('./src/vision-worker.js', import.meta.url))],
-  ['page-edges.js', readFileSync(new URL('./src/page-edges.js', import.meta.url))],
-  ['opencv.js', readFileSync(new URL('./node_modules/@techstark/opencv-js/dist/opencv.js', import.meta.url))],
-  ['jscanify.js', readFileSync(new URL('./vendor/jscanify.cjs', import.meta.url))],
-  ['jscanify.LICENSE', readFileSync(new URL('./vendor/jscanify.LICENSE', import.meta.url))],
-  ['AndroidDocumentFilter.LICENSE', readFileSync(new URL('./vendor/AndroidDocumentFilter.LICENSE', import.meta.url))],
-  ['react-perspective-cropper.LICENSE', readFileSync(new URL('./vendor/react-perspective-cropper.LICENSE', import.meta.url))],
-  ['THIRD-PARTY-NOTICES.txt', readFileSync(new URL('./vendor/THIRD-PARTY-NOTICES.txt', import.meta.url))],
-  ['pdf-lib.LICENSE', readFileSync(new URL('./node_modules/pdf-lib/LICENSE.md', import.meta.url))],
-  ['opencv.LICENSE', readFileSync(new URL('./node_modules/@techstark/opencv-js/LICENSE', import.meta.url))],
-]);
-const signature = createHash('sha256');
-for (const data of runtimeFiles.values()) signature.update(data);
-const folder = 'engine-' + signature.digest('hex').slice(0, 12);
 const staticFiles = ['manifest.webmanifest', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/icon-maskable.png', 'icons/apple-touch-icon.png'];
+const fonts = ['standard_fonts', 'cmaps', 'wasm', 'iccs'];
 
-function localScanner() {
+function pdfAssets(destination) {
+  mkdirSync(destination, { recursive: true });
+  for (const directory of fonts) {
+    cpSync(new URL('./node_modules/pdfjs-dist/' + directory, import.meta.url), new URL(directory, destination), { recursive: true });
+  }
+  cpSync(new URL('./node_modules/pdfjs-dist/LICENSE', import.meta.url), new URL('LICENSE-PDF.js', destination));
+  cpSync(new URL('./node_modules/pdf-lib/LICENSE.md', import.meta.url), new URL('LICENSE-pdf-lib.md', destination));
+}
+
+function localApp() {
   return {
-    name: 'local-scanner',
-    configureServer(server) {
-      server.middlewares.use((request, response, next) => {
-        const path = new URL(request.url, 'http://localhost').pathname;
-        const prefix = '/' + folder + '/';
-        const file = path.startsWith(prefix) && runtimeFiles.get(path.slice(prefix.length));
-        if (!file) return next();
-        response.setHeader('Content-Type', path.endsWith('.js') ? 'text/javascript' : 'text/plain');
-        response.end(file);
-      });
+    name: 'archivo-pdf',
+    configureServer() {
+      pdfAssets(new URL('./public/pdf-assets/', import.meta.url));
     },
     generateBundle(_options, bundle) {
-      for (const [name, source] of runtimeFiles) {
-        this.emitFile({ type: 'asset', fileName: folder + '/' + name, source });
-      }
-      const paths = [...new Set(['index.html', ...Object.keys(bundle), ...staticFiles, ...Array.from(runtimeFiles.keys(), name => folder + '/' + name)])];
+      const paths = [...new Set(['index.html', ...Object.keys(bundle), ...staticFiles])];
       const worker = readFileSync(new URL('./src/service-worker.js', import.meta.url), 'utf8');
-      const release = createHash('sha256').update(paths.join('|')).update(worker);
-      release.update(readFileSync(new URL('./index.html', import.meta.url)));
-      for (const path of staticFiles) release.update(readFileSync(new URL('./public/' + path, import.meta.url)));
-      const version = release.digest('hex').slice(0, 12);
+      const hash = createHash('sha256').update(paths.join('|')).update(worker);
+      hash.update(readFileSync(new URL('./index.html', import.meta.url)));
+      for (const path of staticFiles) hash.update(readFileSync(new URL('./public/' + path, import.meta.url)));
       this.emitFile({
-        type: 'asset',
-        fileName: 'sw.js',
-        source: 'const version=' + JSON.stringify(version) + ';\nconst paths=' + JSON.stringify(paths) + ';\n' + worker,
+        type: 'asset', fileName: 'sw.js',
+        source: 'const version=' + JSON.stringify(hash.digest('hex').slice(0, 12)) +
+          ';\nconst paths=' + JSON.stringify(paths) + ';\n' + worker,
       });
+    },
+    closeBundle() {
+      pdfAssets(new URL('./dist/pdf-assets/', import.meta.url));
     },
   };
 }
 
 export default defineConfig({
   base: './',
-  define: { __VISION_FOLDER__: JSON.stringify(folder) },
-  build: { target: ['safari16', 'chrome109', 'firefox115'], sourcemap: false },
-  plugins: [localScanner()],
+  build: { target: ['safari16.4', 'chrome109', 'firefox115'], sourcemap: false },
+  plugins: [localApp()],
 });

@@ -1,4 +1,4 @@
-name: Escanercillo
+name: Archivo PDF
 on:
   push:
     branches: [main]
@@ -23,10 +23,10 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build
-      - name: Test the scanner
+      - name: Test the PDF editor
         run: |
           if command -v google-chrome >/dev/null; then
-            SCANNER_CHROMIUM="$(command -v google-chrome)" npm test
+            PDF_CHROMIUM="$(command -v google-chrome)" npm test
           else
             npx playwright install --only-shell chromium
             npm test

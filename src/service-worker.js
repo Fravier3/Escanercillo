@@ -1,27 +1,25 @@
 /* global version, paths */
 const scope = self.registration.scope;
-const prefix = 'escanercillo-' + scope + '-';
-const name = prefix + version;
-const urls = new Set(paths.map(path => new URL(path, scope).href));
-// Only immutable, same-origin build files are cached here. Match the cached
-// bytes even if module requests carry different Origin headers from precache.
+const prefix = 'archivo-pdf-' + scope + '-';
+const cacheName = prefix + version;
+const staticFiles = new Set(paths.map(path => new URL(path, scope).href));
 const staticMatch = { ignoreVary: true };
 
 self.addEventListener('install', event => {
-  event.waitUntil(caches.open(name).then(cache => cache.addAll(
-    Array.from(urls, url => new Request(url, { cache: 'reload' }))
+  event.waitUntil(caches.open(cacheName).then(cache => cache.addAll(
+    Array.from(staticFiles, url => new Request(url, { cache: 'reload' }))
   )));
 });
-
 self.addEventListener('message', ({ data }) => {
   if (data === 'activate') self.skipWaiting();
 });
-
 self.addEventListener('activate', event => {
   event.waitUntil((async () => {
-    const prior = (await caches.keys()).filter(key => key.startsWith(prefix) && key !== name);
-    // Keep one prior build for a second tab still editing a document.
-    await Promise.all(prior.slice(0, -1).map(key => caches.delete(key)));
+    const cacheKeys = await caches.keys();
+    const earlier = cacheKeys.filter(key => key.startsWith(prefix) && key !== cacheName);
+    await Promise.all(earlier.slice(0, -1).map(key => caches.delete(key)));
+    const scannerCaches = cacheKeys.filter(key => key.startsWith('escanercillo-' + scope + '-'));
+    await Promise.all(scannerCaches.map(key => caches.delete(key)));
     await self.clients.claim();
   })());
 });
@@ -29,21 +27,23 @@ self.addEventListener('activate', event => {
 self.addEventListener('fetch', event => {
   const { request } = event;
   if (request.method !== 'GET' || !request.url.startsWith(scope)) return;
-  if (request.mode === 'navigate') {
-    event.respondWith(caches.open(name).then(async cache => (await cache.match(new URL('index.html', scope).href)) ?? fetch(request)));
+  const relative = new URL(request.url).pathname.slice(new URL(scope).pathname.length);
+  if (request.mode === 'navigate' && (relative === '' || relative === 'index.html')) {
+    event.respondWith(caches.open(cacheName).then(async cache => (await cache.match(new URL('./index.html', scope))) ?? fetch(request)));
     return;
   }
-  if (urls.has(request.url)) {
-    event.respondWith(caches.open(name).then(async cache => (await cache.match(request, staticMatch)) ?? fetch(request)));
-    return;
-  }
-  if (/\/(?:assets\/|engine-[a-f0-9]+\/)/.test(new URL(request.url).pathname)) {
+  if (staticFiles.has(request.url) || /^(assets|pdf-assets|pdfcraft)\//.test(relative)) {
     event.respondWith((async () => {
-      for (const key of (await caches.keys()).filter(key => key.startsWith(prefix)).reverse()) {
-        const match = await (await caches.open(key)).match(request, staticMatch);
-        if (match) return match;
+      const cache = await caches.open(cacheName);
+      const local = await cache.match(request, staticMatch);
+      if (local) return local;
+      if (relative.startsWith('assets/')) {
+        const earlier = await caches.match(request, staticMatch);
+        if (earlier) return earlier;
       }
-      return fetch(request);
+      const response = await fetch(request);
+      if (response.ok) event.waitUntil(cache.put(request, response.clone()).catch(() => {}));
+      return response;
     })());
   }
 });

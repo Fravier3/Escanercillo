@@ -1,16 +1,18 @@
-# Escanercillo
+# Archivo PDF
 
-PWA en español para escanear documentos, corregir bordes y guardar una o más hojas como PDF. Lee fotos de la cámara o la galería y procesa píxeles en un Web Worker. No requiere cuenta ni servicios de datos y no carga imágenes a Internet. Las páginas de la sesión viven en memoria hasta que se descargue el PDF o se cierre la aplicación.
+Editor local de PDF diseñado para iPhone. Abre y visualiza PDFs, organiza páginas, combina y extrae documentos, añade texto y firmas dibujadas, convierte fotos a PDF y exporta copias comprimidas. Los PDFs se procesan en el dispositivo.
 
-## Usar en iPhone
+El modo **Edición avanzada** carga la distribución web oficial de [PdfCraft](https://github.com/storytold/pdfcraft), la misma versión 0.19.0 integrada en [Arsenal](https://github.com/Fravier3/navajaSuiza/tree/omnidesk-windows/desktop). La aplicación táctil usa PDF.js para visualizar y pdf-lib para las operaciones rápidas. Los avisos de licencia de los tres proyectos se incluyen en el build.
 
-Abre la app con Safari. Para instalarla, pulsa **Compartir → Añadir a pantalla de inicio**. **Escanear ahora** abre la captura del dispositivo; **Importar fotos** permite seleccionar varias. Si un recorte no sale bien, ajusta las cuatro esquinas. Usa **Guardar PDF** y descarga el archivo o compártelo con Archivos donde esté disponible. El modo sin conexión queda disponible después de que el navegador termine de guardar la aplicación y el motor de escaneo.
+## Uso
 
-La decodificación depende del sistema y el navegador. Si una imagen HEIC no se abre, prueba la cámara o una copia JPEG.
+Abre [Archivo PDF](https://fravier3.github.io/Escanercillo/) en Safari y usa **Compartir → Agregar a Inicio**. El modo táctil puede usarse sin red después de la primera carga. El modo avanzado es una descarga aparte cuando se abre por primera vez. En ese modo, guarda en PdfCraft, vuelve a Archivo PDF y descarga o comparte la edición. Para documentos cifrados, abre el archivo directamente en Edición avanzada.
+
+La firma dibujada es una marca visual. El texto nuevo se superpone a la página. La copia comprimida rasteriza el documento, lo que elimina los enlaces y la capacidad de seleccionar texto en esa copia. Conserva el archivo original para esos usos.
 
 ## Desarrollo
 
-Requiere Node.js 24.
+Requiere Node 24, curl y unzip. El build verifica el SHA-256 del archivo de PdfCraft antes de extraerlo. Para reutilizar un ZIP local idéntico, se puede definir `PDFCRAFT_ARCHIVE`.
 
 ```sh
 npm ci
@@ -20,10 +22,4 @@ npx playwright install --with-deps chromium
 npm test
 ```
 
-`npm test` utiliza el build de `dist`. Puede usar Chromium instalado si se define `SCANNER_CHROMIUM`. El workflow verifica el flujo móvil y escritorio y despliega únicamente `dist`. Para habilitar Pages, selecciona **GitHub Actions** como fuente en la configuración de Pages.
-
-## Detección y filtrado
-
-jscanify aporta el contorno de referencia. OpenCV propone otros candidatos con bordes de varios contrastes y un umbral de luminosidad. El motor verifica que el cambio entre el papel y el fondo se mantenga a lo largo de los cuatro lados, ajusta las rectas a resolución más alta y aplica un margen interior mínimo al recorte automático. Si la detección no es clara, pide confirmar las esquinas antes de exportar.
-
-La transformación de perspectiva usa interpolación cúbica. Documento y Papel blanco estiman la luz sobre cada zona de la hoja y corrigen el contraste y la nitidez, con protección para tinta de color. La exportación vuelve a procesar las fotos originales a hasta 3100 píxeles de lado mayor, sin ampliar archivos pequeños. Los algoritmos y sus licencias están detallados en [THIRD-PARTY-NOTICES](vendor/THIRD-PARTY-NOTICES.txt). El motor y las dependencias se sirven desde el mismo sitio.
+GitHub Actions construye, prueba y publica solamente `dist` en Pages. El historial del producto anterior se conserva en los commits previos a este cambio.

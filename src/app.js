@@ -1,297 +1,332 @@
 import './styles.css';
-import { editCorners } from './crop.js';
-import { frameBlob, preparePage, renderPage } from './imaging.js';
-import { createPdf } from './pdf.js';
-import { setupCamera } from './camera.js';
+import { PDFDocument, degrees } from 'pdf-lib';
+import { addMark, compressedPdf, copyPages, imagePdf, loadDocument, mime, pageRange, render, viewDocument } from './pdf-tools.js';
+import { signaturePad } from './signature.js';
+import { setupCraft } from './craft.js';
 import { manageUpdates } from './pwa.js';
 
-const element = id => document.getElementById(id);
-const home = element('home'), editing = element('editing'), preview = element('preview'), status = element('status');
-const pagesNode = element('pages'), filterNode = element('filters'), resultNode = element('result');
-const photoInput = element('photo-input'), cameraInput = element('camera-input');
-const cameraDialog = element('camera-dialog'), addDialog = element('add-dialog'), cropDialog = element('crop-dialog');
-const video = element('video'), capture = element('capture');
-const uploadButtons = ['scan', 'import', 'add', 'crop', 'export', 'rotate', 'remove', 'left', 'right'].map(element);
-const filterList = [
-  ['document', 'Documento'],
-  ['light', 'Papel blanco'],
-  ['binary', 'Blanco y negro'],
-  ['gray', 'Escala de grises'],
-  ['original', 'Color original'],
-];
-const pages = [];
-let active = 0, busy = false, revision = 0, cropEditor, pdfURL, pendingUpdate;
+const $ = id => document.getElementById(id);
+const pdfInput = $('pdf-input'), imageInput = $('image-input'), canvas = $('document-canvas');
+const originalName = 'Documento.pdf';
+const toolbar = ['advanced','new','pages','append','sign','text','extract','compress','save','share','rotate','remove','move-left','move-right','prev-page','next-page'];
+const pad = signaturePad($('signature-pad'));
+let documentModel, bytes, viewing, fileName = originalName, position = 0;
+let waiting = false, pendingMark, appendMode = false, changed = false, revision = 0, secondaryDownload, pendingUpdate;
+const history = [];
 
-function showMessage(message = '', error = false) {
-  status.hidden = !message;
-  status.textContent = message;
-  status.dataset.error = String(error);
+function announce(message = '', error = false) {
+  const node = $('status');
+  node.textContent = message;
+  node.dataset.error = String(error);
+  node.hidden = !message;
 }
 
-function setBusy(value) {
-  busy = value;
-  uploadButtons.forEach(button => { button.disabled = value; });
-  if (!value) {
-    element('left').disabled = active === 0;
-    element('right').disabled = active >= pages.length - 1;
-    if (!pages.length && pendingUpdate) pendingUpdate();
+function updateControls() {
+  toolbar.forEach(id => { $(id).disabled = waiting; });
+  ['open', 'from-images'].forEach(id => { $(id).disabled = waiting; });
+  if (!documentModel) return;
+  const count = documentModel.getPageCount();
+  $('prev-page').disabled = $('move-left').disabled = waiting || position === 0;
+  $('next-page').disabled = $('move-right').disabled = waiting || position >= count - 1;
+  $('remove').disabled = waiting || count <= 1;
+  $('undo').disabled = waiting || !history.length;
+  $('file-name').textContent = fileName;
+  $('file-count').textContent = count + (count === 1 ? ' página' : ' páginas');
+  $('page-number').textContent = (position + 1) + ' / ' + count;
+  if ($('pages-dialog').open) showPageList();
+}
+
+async function operation(task) {
+  if (waiting) return;
+  waiting = true;
+  updateControls();
+  try {
+    await task();
+  } catch (error) {
+    const readable = error?.name === 'EncryptedPDFError' || error?.name === 'PasswordException';
+    announce(readable ? 'Este PDF está protegido. Intenta abrirlo en Edición avanzada con su contraseña.' : (error.message || 'No se pudo procesar el documento.'), true);
+  } finally {
+    waiting = false;
+    updateControls();
+    if (!documentModel) pendingUpdate?.();
   }
 }
 
-function clearResult() {
-  if (pdfURL) URL.revokeObjectURL(pdfURL);
-  pdfURL = undefined;
-  resultNode.hidden = true;
-  resultNode.replaceChildren();
-}
-
-function showPreview() {
-  const page = pages[active];
+let painting = Promise.resolve();
+function paint() {
   const token = ++revision;
-  if (!page) {
-    preview.replaceChildren();
-    return;
-  }
-  const visible = new Image();
-  visible.alt = 'Vista previa de la página ' + (active + 1);
-  visible.src = page.previewURL ?? page.photoURL;
-  preview.replaceChildren(visible);
-  if (page.previewURL) return;
-  renderPage(page, 980, .87).then(blob => {
+  const engine = viewing, pageNumber = position + 1;
+  if (!engine) return Promise.resolve();
+  painting = painting.catch(() => {}).then(async () => {
     if (token !== revision) return;
-    page.previewURL = URL.createObjectURL(blob);
-    visible.src = page.previewURL;
-  }).catch(error => {
-    if (token === revision) showMessage(error.message, true);
+    const targetWidth = Math.max(140, $('canvas-area').clientWidth - 22);
+    const scratch = document.createElement('canvas');
+    try {
+      await render(engine, pageNumber, scratch, Math.min(targetWidth * (devicePixelRatio || 1), 1800));
+      if (token !== revision) return;
+      canvas.width = scratch.width;
+      canvas.height = scratch.height;
+      canvas.style.width = Math.min(targetWidth, scratch.width / Math.min(2, devicePixelRatio || 1)) + 'px';
+      canvas.getContext('2d', { alpha: false }).drawImage(scratch, 0, 0);
+    } finally {
+      scratch.width = scratch.height = 1;
+    }
   });
+  return painting;
 }
 
-function renderState() {
-  const page = pages[active];
-  home.hidden = Boolean(page);
-  editing.hidden = !page;
-  if (!page) {
-    ++revision;
-    if (!busy) pendingUpdate?.();
-    return;
+async function setDocument(model, name, modelBytes, { edited = false, page = 0, remember = false } = {}) {
+  if (!model.getPageCount()) throw new Error('El documento no contiene páginas.');
+  const nextViewer = await viewDocument(modelBytes);
+  const priorViewer = viewing;
+  if (remember && bytes && bytes.length < 22 * 1024 ** 2) {
+    history.push({ bytes, page: position });
+    if (history.length > 4) history.shift();
   }
-  element('page-label').textContent = 'Página ' + (active + 1) + ' de ' + pages.length;
-  element('page-count').textContent = String(pages.length);
-  filterNode.replaceChildren(...filterList.map(([mode, label]) => {
+  documentModel = model;
+  bytes = modelBytes;
+  viewing = nextViewer;
+  position = Math.min(page, model.getPageCount() - 1);
+  fileName = name;
+  changed = edited;
+  $('welcome').hidden = true;
+  $('editor').hidden = false;
+  $('share').hidden = !navigator.canShare?.({ files: [new File(['%PDF'], 'archivo.pdf', { type: mime })] });
+  setPlacement();
+  updateControls();
+  try {
+    await paint();
+  } finally {
+    await priorViewer?.destroy();
+  }
+}
+
+function showPageList() {
+  const count = documentModel.getPageCount();
+  const list = $('page-list');
+  list.replaceChildren(...Array.from({ length: count }, (_, index) => {
     const button = document.createElement('button');
-    button.textContent = label;
-    button.setAttribute('aria-pressed', String(page.mode === mode));
-    button.disabled = busy;
-    button.addEventListener('click', () => {
-      if (busy || page.mode === mode) return;
-      page.mode = mode;
-      changePage(page);
-      filterNode.querySelectorAll('button')[filterList.findIndex(([key]) => key === mode)]?.focus();
-    });
+    button.type = 'button';
+    button.textContent = 'Página ' + (index + 1);
+    if (index === position) button.setAttribute('aria-current', 'true');
+    button.disabled = waiting;
+    button.onclick = () => {
+      goTo(index);
+      list.children[index].focus();
+    };
     return button;
   }));
-  pagesNode.replaceChildren(...pages.map((item, i) => {
-    const button = document.createElement('button');
-    button.setAttribute('aria-label', 'Página ' + (i + 1));
-    if (active === i) button.setAttribute('aria-current', 'true');
-    const image = new Image();
-    image.alt = '';
-    image.src = item.photoURL;
-    button.append(image, String(i + 1));
-    button.addEventListener('click', () => {
-      active = i;
-      showMessage();
-      renderState();
-      pagesNode.children[i].focus();
-    });
-    return button;
-  }));
-  const item = pagesNode.children[active];
-  const bounds = item.getBoundingClientRect();
-  const rail = pagesNode.getBoundingClientRect();
-  if (bounds.left < rail.left) pagesNode.scrollLeft += bounds.left - rail.left;
-  if (bounds.right > rail.right) pagesNode.scrollLeft += bounds.right - rail.right;
-  setBusy(busy);
-  showPreview();
 }
 
-function changePage(page) {
-  if (page.previewURL) URL.revokeObjectURL(page.previewURL);
-  page.previewURL = undefined;
-  clearResult();
-  renderState();
+function goTo(index) {
+  if (waiting || index < 0 || index >= documentModel.getPageCount()) return;
+  position = index;
+  updateControls();
+  paint().catch(error => announce(error.message, true));
 }
+$('prev-page').onclick = () => goTo(position - 1);
+$('next-page').onclick = () => goTo(position + 1);
 
-async function addPhotos(files) {
-  if (busy || !files.length) return;
-  setBusy(true);
-  clearResult();
-  let added = 0, missed = 0, failed = 0;
-  try {
-    for (const [index, file] of files.entries()) {
-      showMessage('Preparando foto ' + (index + 1) + ' de ' + files.length + '…');
-      try {
-        const prepared = await preparePage(file);
-        pages.push({ ...prepared, mode: 'document', turns: 0, photoURL: URL.createObjectURL(prepared.photo) });
-        added += 1;
-        if (!prepared.detected) missed += 1;
-      } catch {
-        failed += 1;
-      }
-    }
-    if (added) active = pages.length - added;
-  } finally {
-    setBusy(false);
-    renderState();
-  }
-  if (failed) {
-    showMessage('No se pudieron abrir ' + failed + ' foto(s). Prueba con JPEG, PNG o una foto de la cámara.', true);
-  } else if (missed) {
-    showMessage('Confirma los bordes de ' + missed + ' página(s) antes de exportar.');
-  } else {
-    showMessage();
-  }
-}
-
-const openCamera = setupCamera({ dialog: cameraDialog, video, capture, nativeInput: cameraInput });
-function startCamera() {
-  cameraDialog.querySelector('.camera-error')?.remove();
-  openCamera().catch(error => {
-    const message = document.createElement('p');
-    message.className = 'dialog-help';
-    message.setAttribute('role', 'status');
-    message.textContent = error.message;
-    message.classList.add('camera-error');
-    video.before(message);
+function mutate(change, nextPage = position) {
+  return operation(async () => {
+    const next = await loadDocument(bytes);
+    await change(next);
+    await setDocument(next, fileName, await next.save(), { edited: true, page: nextPage, remember: true });
   });
 }
 
-element('scan').onclick = startCamera;
-element('import').onclick = () => photoInput.click();
-element('add').onclick = () => addDialog.showModal();
-element('add-camera').onclick = () => { addDialog.close(); startCamera(); };
-element('add-import').onclick = () => { addDialog.close(); photoInput.click(); };
-element('native-camera').onclick = () => { cameraDialog.close(); cameraInput.click(); };
-for (const input of [photoInput, cameraInput]) {
-  input.onchange = () => {
-    const files = Array.from(input.files);
-    input.value = '';
-    void addPhotos(files);
-  };
+function choosePDF(append) {
+  if (!append && changed && !confirm('¿Quieres abrir otro documento? Guarda primero los cambios que quieras conservar.')) return;
+  appendMode = append;
+  pdfInput.click();
 }
-capture.onclick = async () => {
-  capture.disabled = true;
-  try {
-    const file = await frameBlob(video);
-    cameraDialog.close();
-    await addPhotos([file]);
-  } catch (error) {
-    cameraDialog.close();
-    showMessage(error.message, true);
-  }
-};
-document.querySelectorAll('[data-close]').forEach(button => {
-  button.onclick = () => button.closest('dialog').close();
-});
-element('crop').onclick = () => {
-  const page = pages[active];
-  cropEditor = editCorners(element('crop-stage'), page.photoURL, page.corners);
-  cropDialog.showModal();
-};
-element('crop-reset').onclick = () => cropEditor.reset();
-element('crop-apply').onclick = () => {
-  const corners = cropEditor.value();
-  const valid = corners.every((a, index) => {
-    const b = corners[(index + 1) % 4], c = corners[(index + 2) % 4];
-    return (b.x - a.x) * (c.y - b.y) - (b.y - a.y) * (c.x - b.x) > .002;
-  });
-  if (!valid) {
-    const help = cropDialog.querySelector('.dialog-help');
-    help.textContent = 'Separa las esquinas y evita que las líneas se crucen.';
-    return;
-  }
-  cropDialog.close();
-  pages[active].corners = corners;
-  pages[active].detected = true;
-  showMessage();
-  changePage(pages[active]);
-};
-cropDialog.addEventListener('close', () => {
-  element('crop-stage').replaceChildren();
-  cropDialog.querySelector('.dialog-help').textContent = 'Arrastra las cuatro esquinas hasta el borde de la hoja.';
-});
-function movePage(offset) {
-  const next = active + offset;
-  if (next < 0 || next >= pages.length) return;
-  [pages[active], pages[next]] = [pages[next], pages[active]];
-  active = next;
-  clearResult();
-  renderState();
-}
-element('left').onclick = () => movePage(-1);
-element('right').onclick = () => movePage(1);
-element('rotate').onclick = () => {
-  pages[active].turns += 1;
-  changePage(pages[active]);
-};
-element('remove').onclick = () => {
-  const [removed] = pages.splice(active, 1);
-  URL.revokeObjectURL(removed.photoURL);
-  if (removed.previewURL) URL.revokeObjectURL(removed.previewURL);
-  active = Math.max(0, Math.min(active, pages.length - 1));
-  clearResult();
-  showMessage();
-  renderState();
-};
 
-element('export').onclick = async () => {
-  const review = pages.findIndex(page => !page.detected);
-  if (review !== -1 && !busy) {
-    active = review;
-    renderState();
-    showMessage('Confirma los bordes de la página ' + (active + 1) + ' para continuar.');
-    element('crop').click();
-    return;
-  }
-  const snapshot = pages.map(page => ({ ...page }));
-  if (!snapshot.length || busy) return;
-  setBusy(true);
-  clearResult();
-  try {
-    const blob = await createPdf(snapshot, (n, count) => showMessage('Preparando página ' + n + ' de ' + count + '…'));
-    const name = 'Escanercillo-' + new Date().toISOString().slice(0, 10) + '.pdf';
-    pdfURL = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = pdfURL;
-    link.download = name;
-    link.textContent = 'Descargar PDF';
-    resultNode.append(link);
-    const file = new File([blob], name, { type: 'application/pdf' });
-    if (navigator.canShare?.({ files: [file] })) {
-      const share = document.createElement('button');
-      share.className = 'text-btn';
-      share.textContent = 'Compartir o guardar en Archivos';
-      share.onclick = () => navigator.share({ files: [file] }).catch(error => {
-        if (error.name !== 'AbortError') showMessage('Usa Descargar PDF para guardar el archivo.', true);
-      });
-      resultNode.append(share);
+for (const id of ['open', 'new']) $(id).onclick = () => choosePDF(false);
+$('append').onclick = () => choosePDF(true);
+$('from-images').onclick = () => imageInput.click();
+pdfInput.onchange = () => {
+  const files = Array.from(pdfInput.files);
+  pdfInput.value = '';
+  if (!files.length) return;
+  void operation(async () => {
+    announce('Abriendo PDF…');
+    const documents = [];
+    for (const file of files) {
+      if (file.size > 80 * 1024 ** 2) throw new Error('Usa un PDF de hasta 80 MB en las herramientas táctiles.');
+      const input = new Uint8Array(await file.arrayBuffer());
+      const model = await loadDocument(input);
+      documents.push({ input, model });
     }
-    resultNode.hidden = false;
-    showMessage('PDF listo con ' + snapshot.length + (snapshot.length === 1 ? ' página.' : ' páginas.'));
-  } catch (error) {
-    showMessage(error.message || 'No se pudo crear el PDF.', true);
-  } finally {
-    setBusy(false);
-  }
+    if (!appendMode && documents.length === 1) {
+      await setDocument(documents[0].model, files[0].name, documents[0].input);
+      history.length = 0;
+    } else {
+      const output = appendMode ? await loadDocument(bytes) : await PDFDocument.create();
+      const addedAt = output.getPageCount();
+      for (const { model } of documents) await copyPages(output, model, model.getPageIndices());
+      await setDocument(output, appendMode ? fileName : 'Documentos-combinados.pdf', await output.save(), { edited: true, page: addedAt, remember: appendMode });
+      if (!appendMode) history.length = 0;
+    }
+    announce();
+  });
 };
 
-document.querySelector('.brand').onclick = event => {
-  if (pages.length || busy) event.preventDefault();
+imageInput.onchange = () => {
+  const files = Array.from(imageInput.files);
+  imageInput.value = '';
+  if (!files.length) return;
+  void operation(async () => {
+    const output = await imagePdf(files, (n, total) => announce('Convirtiendo foto ' + n + ' de ' + total + '…'));
+    await setDocument(output, 'Fotos.pdf', await output.save(), { edited: true });
+    history.length = 0;
+    announce();
+  });
 };
-manageUpdates({
-  canReload: () => !busy && !pages.length && !cameraDialog.open && !addDialog.open && !cropDialog.open,
-  onUpdate(useUpdate) {
-    pendingUpdate = useUpdate;
-    useUpdate();
+
+$('pages').onclick = () => {
+  $('pages-dialog').showModal();
+  showPageList();
+};
+function move(offset) {
+  const from = position;
+  return mutate(output => {
+    const page = output.getPage(from);
+    output.removePage(from);
+    output.insertPage(from + offset, page);
+  }, from + offset);
+}
+$('move-left').onclick = () => move(-1);
+$('move-right').onclick = () => move(1);
+$('rotate').onclick = () => mutate(output => {
+  const page = output.getPage(position);
+  page.setRotation(degrees((page.getRotation().angle + 90) % 360));
+});
+$('remove').onclick = () => mutate(output => { output.removePage(position); });
+$('undo').onclick = () => {
+  const prior = history.at(-1);
+  if (!prior) return;
+  return operation(async () => {
+    await setDocument(await loadDocument(prior.bytes), fileName, prior.bytes, { edited: true, page: prior.page });
+    history.pop();
+    announce('Cambio deshecho.');
+  });
+};
+
+function setPlacement(item) {
+  pendingMark = item;
+  $('placement').hidden = $('placement-help').hidden = $('cancel-placement').hidden = !item;
+  if (item) $('placement').focus();
+}
+$('cancel-placement').onclick = () => setPlacement();
+$('sign').onclick = () => {
+  pad.clear();
+  $('signature-error').hidden = true;
+  $('sign-dialog').showModal();
+};
+$('clear-sign').onclick = () => pad.clear();
+$('use-sign').onclick = async () => {
+  try {
+    const signature = await pad.png();
+    $('sign-dialog').close();
+    setPlacement({ type: 'signature', bytes: signature });
+  } catch (error) {
+    $('signature-error').textContent = error.message;
+    $('signature-error').hidden = false;
+  }
+};
+$('text').onclick = () => $('text-dialog').showModal();
+$('text-form').onsubmit = event => {
+  event.preventDefault();
+  const value = $('text-value').value.trim();
+  if (!value) return;
+  $('text-dialog').close();
+  setPlacement({ type: 'text', value });
+};
+$('placement').onclick = event => {
+  if (!pendingMark || waiting) return;
+  const box = canvas.getBoundingClientRect();
+  const location = event.detail ? [(event.clientX - box.left) / box.width, (event.clientY - box.top) / box.height] : [.42, .5];
+  const mark = pendingMark, index = position;
+  void mutate(output => addMark(output, index, mark, ...location));
+};
+
+function linkFor(blob, name) {
+  const link = document.createElement('a');
+  link.download = name;
+  link.href = URL.createObjectURL(blob);
+  return link;
+}
+function showDownload(data, name) {
+  if (secondaryDownload) URL.revokeObjectURL(secondaryDownload);
+  const link = linkFor(new Blob([data], { type: mime }), name);
+  secondaryDownload = link.href;
+  link.textContent = 'Descargar ' + name;
+  $('download-extra').replaceChildren(link);
+  $('download-extra').hidden = false;
+}
+const baseName = () => fileName.replace(/\.pdf$/i, '');
+$('save').onclick = () => {
+  const link = linkFor(new Blob([bytes], { type: mime }), baseName() + '.pdf');
+  document.body.append(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(link.href), 60000);
+  changed = false;
+};
+$('share').onclick = () => {
+  const file = new File([bytes], baseName() + '.pdf', { type: mime });
+  navigator.share({ files: [file] }).then(() => { changed = false; }).catch(error => {
+    if (error.name !== 'AbortError') announce('Usa Guardar PDF para descargar el documento.', true);
+  });
+};
+
+$('extract').onclick = () => $('extract-dialog').showModal();
+$('extract-form').onsubmit = event => {
+  event.preventDefault();
+  let indices;
+  try {
+    indices = pageRange($('range').value, documentModel.getPageCount());
+  } catch (error) {
+    $('range').setCustomValidity(error.message);
+    $('range').reportValidity();
+    return;
+  }
+  $('extract-dialog').close();
+  void operation(async () => {
+    const output = await PDFDocument.create();
+    await copyPages(output, documentModel, indices);
+    showDownload(await output.save(), baseName() + '-extraido.pdf');
+    announce('PDF separado listo.');
+  });
+};
+$('range').oninput = () => $('range').setCustomValidity('');
+$('compress').onclick = () => $('compress-dialog').showModal();
+$('run-compress').onclick = () => {
+  $('compress-dialog').close();
+  void operation(async () => {
+    const result = await compressedPdf(bytes, (n, total) => announce('Comprimiendo página ' + n + ' de ' + total + '…'));
+    showDownload(result, baseName() + '-ligero.pdf');
+    announce(result.length < bytes.length ? 'Copia ligera lista.' : 'La copia está lista. El archivo de origen ya era más pequeño.');
+  });
+};
+
+document.querySelectorAll('[data-close]').forEach(button => { button.onclick = () => button.closest('dialog').close(); });
+const openCraft = setupCraft({
+  dialog: $('advanced-dialog'), frame: $('craft-frame'), status: $('advanced-status'), retry: $('advanced-retry'),
+  current: () => bytes && ({ bytes, name: fileName }),
+  async onSave(data, name) {
+    await setDocument(await loadDocument(data), name, data, { edited: true, remember: true, page: position });
   },
 });
+$('advanced').onclick = openCraft;
+
+let resizeTimer;
+window.addEventListener('resize', () => {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(() => paint().catch(error => announce(error.message, true)), 130);
+});
+manageUpdates({
+  canReload: () => !waiting && !documentModel && !$('advanced-dialog').open,
+  onUpdate(apply) { pendingUpdate = apply; apply(); },
+});
+$('advanced-dialog').addEventListener('close', () => pendingUpdate?.());

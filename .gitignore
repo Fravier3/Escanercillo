@@ -3,3 +3,6 @@ dist/
 test-results/
 .DS_Store
 .env*
+
+public/pdfcraft/
+public/pdf-assets/
