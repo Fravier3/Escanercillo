@@ -115,7 +115,12 @@
     <div class="dialog-head"><div><h2 id="advanced-title">PdfCraft</h2><p class="hint">Edición avanzada</p></div><button id="close-advanced" class="circle" aria-label="Volver a Archivo PDF">×</button></div>
     <p id="advanced-status" role="status" aria-live="polite">Cargando el motor de PdfCraft…</p>
     <button id="advanced-retry" class="secondary" hidden>Probar modo compatible</button>
-    <iframe id="craft-frame" title="Editor avanzado PdfCraft" allow="fullscreen; clipboard-read; clipboard-write"></iframe>
+    <nav id="craft-navigation" class="craft-navigation" aria-label="Secciones del editor avanzado">
+      <button data-craft-view="0">Herramientas</button>
+      <button data-craft-view=".5">Página</button>
+      <button data-craft-view="1">Opciones</button>
+    </nav>
+    <div id="craft-viewport"><iframe id="craft-frame" title="Editor avanzado PdfCraft" allow="fullscreen; clipboard-read; clipboard-write"></iframe></div>
   </dialog>
   <script type="module" src="./src/app.js"></script>
 </body>

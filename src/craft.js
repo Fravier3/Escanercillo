@@ -3,6 +3,13 @@ import release from '../pdfcraft.lock.json';
 export function setupCraft({ dialog, frame, status, retry, current, onSave }) {
   let dirty = false, mode, timer;
   const origin = location.origin;
+  const viewport = document.getElementById('craft-viewport');
+  document.querySelectorAll('[data-craft-view]').forEach(button => {
+    button.onclick = () => {
+      const fraction = Number(button.dataset.craftView);
+      viewport.scrollLeft = (viewport.scrollWidth - viewport.clientWidth) * fraction;
+    };
+  });
 
   function fail(message) {
     clearTimeout(timer);
@@ -32,6 +39,7 @@ export function setupCraft({ dialog, frame, status, retry, current, onSave }) {
       clearTimeout(timer);
       status.hidden = true;
       retry.hidden = true;
+      viewport.scrollLeft = current() ? (viewport.scrollWidth - viewport.clientWidth) / 2 : 0;
       const file = current();
       if (file) {
         const bytes = file.bytes.slice().buffer;

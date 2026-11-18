@@ -145,7 +145,11 @@ test('inicia el motor web de PdfCraft desde el editor avanzado', async () => {
   await page.getByRole('button', { name: 'Edición avanzada' }).click();
   await page.waitForFunction(() => document.querySelector('#advanced-status').hidden, null, { timeout: 40000 });
   const core = page.frameLocator('#craft-frame').locator('#pdfcraft');
-  assert.ok(await core.evaluate(canvas => canvas.width > 200 && canvas.height > 300));
+  assert.ok(await core.evaluate(canvas => canvas.width >= 850 && canvas.height > 300));
+  await page.getByRole('button', { name: 'Herramientas', exact: true }).click();
+  assert.equal(await page.locator('#craft-viewport').evaluate(node => node.scrollLeft), 0);
+  await page.getByRole('button', { name: 'Opciones', exact: true }).click();
+  assert.ok(await page.locator('#craft-viewport').evaluate(node => node.scrollLeft > 300));
   await core.evaluate((_, expected) => {
     if (window.pdfCraftBytes !== expected) throw new Error('Archivo no entregado al motor');
   }, input.buffer.length);
