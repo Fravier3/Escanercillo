@@ -75,6 +75,30 @@ test('móvil: bordes automáticos, filtros, PDF multipágina y escaneo sin conex
   await chooser.setFiles(file('primera.jpg', a));
   await page.waitForFunction(() => document.querySelector('#page-count').textContent === '1', null, { timeout: 45000 });
   assert.equal(await page.locator('#status').isHidden(), true, await page.locator('#status').textContent());
+  await page.getByRole('button', { name: 'Color original' }).click();
+  await page.waitForFunction(() => {
+    const img = document.querySelector('#preview img');
+    return img?.naturalWidth > 0 && img.naturalWidth < 700;
+  });
+  const backgroundPixels = await page.locator('#preview img').evaluate(async image => {
+    await image.decode();
+    const canvas = document.createElement('canvas');
+    canvas.width = image.naturalWidth;
+    canvas.height = image.naturalHeight;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(image, 0, 0);
+    const { width, height } = canvas;
+    const data = ctx.getImageData(0, 0, width, height).data;
+    let background = 0;
+    for (let n = 0; n <= 40; n += 1) {
+      const x = Math.round(n * (width - 1) / 40), y = Math.round(n * (height - 1) / 40);
+      for (const i of [x, (height - 1) * width + x, y * width, y * width + width - 1]) {
+        if (data[i * 4 + 2] - data[i * 4] > 22 && data[i * 4] < 100) background += 1;
+      }
+    }
+    return background;
+  });
+  assert.equal(backgroundPixels, 0);
   await page.getByRole('button', { name: 'Ajustar bordes' }).click();
   const corner = await page.getByRole('button', { name: 'Esquina superior izquierda' }).evaluate(node =>
     [parseFloat(node.style.left), parseFloat(node.style.top)]);
@@ -122,5 +146,106 @@ test('escritorio: captura web local y cierre del flujo de cámara', async () => 
   await shutter.click();
   await page.waitForFunction(() => document.querySelector('#page-count').textContent === '1');
   assert.equal(await page.locator('video').evaluate(video => video.srcObject), null);
+  await page.close();
+});
+
+test('fondo claro, papel en perspectiva y sombra lateral', async () => {
+  const page = await browser.newPage();
+  await page.goto(origin);
+  const fixture = await page.evaluate(() => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 1100;
+    canvas.height = 1300;
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#e5dfd7';
+    ctx.fillRect(0, 0, 1100, 1300);
+    const corners = [[163, 147], [970, 275], [830, 1139], [242, 1085]];
+    function outline(x, y) {
+      ctx.beginPath();
+      corners.forEach(([px, py], i) => i ? ctx.lineTo(px + x, py + y) : ctx.moveTo(px + x, py + y));
+      ctx.closePath();
+    }
+    ctx.save();
+    ctx.filter = 'blur(10px)';
+    outline(-10, 18);
+    ctx.fillStyle = '#9e958a';
+    ctx.fill();
+    ctx.restore();
+    outline(0, 0);
+    ctx.clip();
+    const light = ctx.createLinearGradient(240, 0, 780, 0);
+    light.addColorStop(0, '#877f77');
+    light.addColorStop(.37, '#9e9994');
+    light.addColorStop(.67, '#eee7e1');
+    light.addColorStop(1, '#fffaf4');
+    ctx.fillStyle = light;
+    ctx.fillRect(0, 0, 1100, 1300);
+    ctx.fillStyle = '#231d1c';
+    for (let i = 0; i < 17; i += 1) ctx.fillRect(290, 366 + 30 * i, 410 - 35 * (i % 5), 5);
+    ctx.fillStyle = '#b91832';
+    ctx.fillRect(606, 949, 67, 49);
+    return { corners, base64: canvas.toDataURL('image/jpeg', .96).split(',')[1] };
+  });
+  await page.locator('#photo-input').setInputFiles({ name: 'sombra.jpg', mimeType: 'image/jpeg', buffer: Buffer.from(fixture.base64, 'base64') });
+  await page.getByRole('heading', { name: 'Revisar escaneo' }).waitFor();
+  await page.getByRole('button', { name: 'Ajustar bordes' }).click();
+  const actual = await page.locator('.handle').evaluateAll(nodes =>
+    nodes.map(node => [parseFloat(node.style.left) * 11, parseFloat(node.style.top) * 13]));
+  for (const [i, [x, y]] of actual.entries()) {
+    assert.ok(Math.hypot(x - fixture.corners[i][0], y - fixture.corners[i][1]) < 12, JSON.stringify(actual));
+  }
+  await page.getByRole('button', { name: 'Aplicar recorte' }).click();
+  const measure = () => page.locator('#preview img').evaluate(async image => {
+    await image.decode();
+    const canvas = document.createElement('canvas');
+    canvas.width = image.naturalWidth;
+    canvas.height = image.naturalHeight;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(image, 0, 0);
+    const w = canvas.width, h = canvas.height;
+    const pixel = (x, y) => Array.from(ctx.getImageData(Math.round(w * x), Math.round(h * y), 1, 1).data);
+    const pixels = ctx.getImageData(0, 0, w, h).data;
+    let redInk = 0, darkInk = 0;
+    for (let i = 0; i < pixels.length; i += 4) {
+      const red = pixels[i], green = pixels[i + 1], blue = pixels[i + 2];
+      if (red - green > 80 && red - blue > 60) redInk += 1;
+      if (red < 55 && green < 55 && blue < 55) darkInk += 1;
+    }
+    return { paper: [pixel(.23, .07)[0], pixel(.79, .07)[0]], redInk, darkInk };
+  });
+  await page.waitForFunction(() => document.querySelector('#preview img')?.naturalHeight > 0 &&
+    document.querySelector('#preview img').naturalWidth < 800);
+  const cleaned = await measure();
+  await page.getByRole('button', { name: 'Color original' }).click();
+  await page.waitForFunction(() => document.querySelector('#preview img')?.naturalWidth > 0 &&
+    document.querySelector('#preview img').naturalWidth < 800);
+  const original = await measure();
+  assert.ok(cleaned.paper[0] > original.paper[0] + 40, JSON.stringify({ original, cleaned }));
+  assert.ok(Math.abs(cleaned.paper[1] - cleaned.paper[0]) < 35, JSON.stringify(cleaned));
+  assert.ok(cleaned.redInk > 500 && cleaned.redInk >= .8 * original.redInk, JSON.stringify({ original, cleaned }));
+  assert.ok(cleaned.darkInk >= .68 * original.darkInk, JSON.stringify({ original, cleaned }));
+  await page.close();
+});
+
+test('una foto sin bordes claros requiere confirmar el recorte para exportar', async () => {
+  const page = await browser.newPage();
+  await page.goto(origin);
+  const fixture = await page.evaluate(() => {
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = 320;
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#eee';
+    ctx.fillRect(0, 0, 320, 320);
+    return canvas.toDataURL('image/jpeg').split(',')[1];
+  });
+  await page.locator('#photo-input').setInputFiles({ name: 'sin-bordes.jpg', mimeType: 'image/jpeg', buffer: Buffer.from(fixture, 'base64') });
+  await page.getByRole('heading', { name: 'Revisar escaneo' }).waitFor();
+  await page.getByRole('button', { name: 'Guardar PDF' }).click();
+  await page.getByRole('dialog', { name: 'Ajustar bordes' }).waitFor();
+  assert.equal(await page.getByRole('link', { name: 'Descargar PDF' }).count(), 0);
+  await page.getByRole('button', { name: 'Imagen completa' }).click();
+  await page.getByRole('button', { name: 'Aplicar recorte' }).click();
+  await page.getByRole('button', { name: 'Guardar PDF' }).click();
+  await page.getByRole('link', { name: 'Descargar PDF' }).waitFor();
   await page.close();
 });

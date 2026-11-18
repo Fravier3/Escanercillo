@@ -4,6 +4,7 @@ import { defineConfig } from 'vite';
 
 const runtimeFiles = new Map([
   ['vision-worker.js', readFileSync(new URL('./src/vision-worker.js', import.meta.url))],
+  ['page-edges.js', readFileSync(new URL('./src/page-edges.js', import.meta.url))],
   ['opencv.js', readFileSync(new URL('./node_modules/@techstark/opencv-js/dist/opencv.js', import.meta.url))],
   ['jscanify.js', readFileSync(new URL('./vendor/jscanify.cjs', import.meta.url))],
   ['jscanify.LICENSE', readFileSync(new URL('./vendor/jscanify.LICENSE', import.meta.url))],

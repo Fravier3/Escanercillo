@@ -91,10 +91,10 @@ export const fullImage = () => [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 1, y: 1 }, 
 
 export async function preparePage(file) {
   if (!file.size || file.size > 65 * 1024 * 1024) throw new Error('Usa una foto de menos de 65 MB.');
-  const photo = await withSample(file, 1200, canvas => imageBlob(canvas, .89));
+  const photo = await withSample(file, 1440, canvas => imageBlob(canvas, .89));
   let corners;
   try {
-    ({ corners } = await withSample(photo, 720, canvas => request('detect', readPixels(canvas))));
+    ({ corners } = await withSample(photo, 1440, canvas => request('detect', readPixels(canvas))));
   } catch (error) {
     console.warn('Detección automática:', error.message);
   }

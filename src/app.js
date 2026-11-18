@@ -147,7 +147,7 @@ async function addPhotos(files) {
   if (failed) {
     showMessage('No se pudieron abrir ' + failed + ' foto(s). Prueba con JPEG, PNG o una foto de la cámara.', true);
   } else if (missed) {
-    showMessage('Revisa los bordes. Conservamos la imagen completa en ' + missed + ' página(s) sin detección clara.');
+    showMessage('Confirma los bordes de ' + missed + ' página(s) antes de exportar.');
   } else {
     showMessage();
   }
@@ -212,6 +212,7 @@ element('crop-apply').onclick = () => {
   }
   cropDialog.close();
   pages[active].corners = corners;
+  pages[active].detected = true;
   showMessage();
   changePage(pages[active]);
 };
@@ -244,6 +245,14 @@ element('remove').onclick = () => {
 };
 
 element('export').onclick = async () => {
+  const review = pages.findIndex(page => !page.detected);
+  if (review !== -1 && !busy) {
+    active = review;
+    renderState();
+    showMessage('Confirma los bordes de la página ' + (active + 1) + ' para continuar.');
+    element('crop').click();
+    return;
+  }
   const snapshot = pages.map(page => ({ ...page }));
   if (!snapshot.length || busy) return;
   setBusy(true);

@@ -1,9 +1,9 @@
-/* global cv, jscanify */
+/* global cv, jscanify, refinePaperEdges, paperFromSegments */
 let ready;
 
 function initialize() {
   ready ??= (async () => {
-    importScripts('./opencv.js', './jscanify.js');
+    importScripts('./opencv.js', './jscanify.js', './page-edges.js');
     globalThis.cv = await globalThis.cv;
     if (!cv.Mat) throw new Error('El motor de escaneo no pudo iniciarse.');
   })();
@@ -74,46 +74,69 @@ function bestQuadrilateral(mask, consider) {
 }
 
 function findPage(image) {
-  const width = image.cols, height = image.rows;
-  let best = null, bestScore = 0;
-  function consider(points, weight = 1) {
-    const score = polygonScore(points, width, height) * weight;
-    if (score > bestScore) {
-      best = points;
-      bestScore = score;
-    }
-  }
-
-  const gray = new cv.Mat(), edge = new cv.Mat(), paper = new cv.Mat();
+  const thumbnail = new cv.Mat(), fullGray = new cv.Mat();
+  const gray = new cv.Mat(), soft = new cv.Mat(), edge = new cv.Mat(), paper = new cv.Mat();
   const kernel = cv.Mat.ones(5, 5, cv.CV_8U);
   const scanner = new jscanify();
+  const segments = new cv.Mat();
+  const candidates = [];
   let contour;
   try {
-    cv.cvtColor(image, gray, cv.COLOR_RGBA2GRAY);
-    cv.GaussianBlur(gray, gray, new cv.Size(5, 5), 0, 0);
-    // jscanify supplies an independent paper contour. Use a polygon-based
-    // estimate when available, since extrema alone can clip angled pages.
-    contour = scanner.findPaperContour(gray);
-    if (contour) {
-      const corners = scanner.getCornerPoints(contour);
-      const points = [corners.topLeftCorner, corners.topRightCorner, corners.bottomRightCorner, corners.bottomLeftCorner];
-      if (points.every(Boolean)) consider(orderCorners(points), .73);
+    const ratio = Math.min(1, 720 / Math.max(image.rows, image.cols));
+    const width = Math.max(1, Math.round(image.cols * ratio));
+    const height = Math.max(1, Math.round(image.rows * ratio));
+    if (Math.min(width, height) < 32) return null;
+    cv.resize(image, thumbnail, new cv.Size(width, height), 0, 0, cv.INTER_AREA);
+    cv.cvtColor(thumbnail, gray, cv.COLOR_RGBA2GRAY);
+    cv.GaussianBlur(gray, soft, new cv.Size(3, 3), 0, 0);
+
+    function consider(points, weight = 1) {
+      const shape = polygonScore(points, width, height) * weight;
+      if (!shape || candidates.some(candidate =>
+        candidate.points.every((p, i) => pointDistance(p, points[i]) < 3))) return;
+      candidates.push({ points, shape });
     }
-    for (const [low, high] of [[45, 145], [20, 70]]) {
-      cv.Canny(gray, edge, low, high);
+    contour = scanner.findPaperContour(soft);
+    if (contour) {
+      const vertices = scanner.getCornerPoints(contour);
+      const points = [vertices.topLeftCorner, vertices.topRightCorner, vertices.bottomRightCorner, vertices.bottomLeftCorner];
+      if (points.every(Boolean)) consider(orderCorners(points), .85);
+    }
+    for (const [low, high] of [[45, 145], [20, 65], [8, 25]]) {
+      cv.Canny(soft, edge, low, high);
       cv.morphologyEx(edge, edge, cv.MORPH_CLOSE, kernel);
       bestQuadrilateral(edge, consider);
     }
-    cv.threshold(gray, paper, 0, 255, cv.THRESH_BINARY | cv.THRESH_OTSU);
+    const shortSide = Math.min(width, height);
+    cv.HoughLinesP(edge, segments, 1, Math.PI / 180, 38, shortSide * .23, shortSide * .06);
+    paperFromSegments(segments.data32S, width, height, consider);
+
+    cv.threshold(soft, paper, 0, 255, cv.THRESH_BINARY | cv.THRESH_OTSU);
     cv.morphologyEx(paper, paper, cv.MORPH_CLOSE, kernel);
-    bestQuadrilateral(paper, points => consider(points, .9));
-    return best?.map(({ x, y }) => ({ x: x / (width - 1), y: y / (height - 1) })) ?? null;
+    bestQuadrilateral(paper, points => consider(points, .96));
+    candidates.sort((a, b) => b.shape - a.shape);
+
+    const checked = candidates.slice(0, 12).flatMap(({ points, shape }) => {
+      const result = refinePaperEdges(points, gray.data, thumbnail.data, width, height);
+      if (!result || result.confidence < .55 || !polygonScore(result.points, width, height)) return [];
+      return [{ ...result, score: shape * (.42 + .58 * result.confidence) }];
+    }).sort((a, b) => b.score - a.score);
+    if (!checked.length) return null;
+
+    cv.cvtColor(image, fullGray, cv.COLOR_RGBA2GRAY);
+    for (const candidate of checked.slice(0, 4)) {
+      const scaled = candidate.points.map(({ x, y }) => ({
+        x: x * (image.cols - 1) / (width - 1),
+        y: y * (image.rows - 1) / (height - 1),
+      }));
+      const result = refinePaperEdges(scaled, fullGray.data, image.data, image.cols, image.rows, true);
+      if (!result || result.confidence < .56 || !polygonScore(result.points, image.cols, image.rows)) continue;
+      return result.points.map(({ x, y }) => ({ x: x / (image.cols - 1), y: y / (image.rows - 1) }));
+    }
+    return null;
   } finally {
     contour?.delete();
-    kernel.delete();
-    gray.delete();
-    edge.delete();
-    paper.delete();
+    for (const resource of [kernel, thumbnail, fullGray, gray, soft, edge, paper, segments]) resource.delete();
   }
 }
 
@@ -178,12 +201,21 @@ function enhance(image, mode) {
       if (mode === 'gray') value = lum + sharp;
       else if (mode === 'binary') value = (lum / Math.max(background, 90)) * 255 + sharp > 172 ? 255 : 0;
       else {
-        const normalized = (lum * 247) / Math.max(background, 118);
-        const contrast = mode === 'light' ? 1.14 : 1.07;
-        value = (normalized - 128) * contrast + 128 + sharp;
+        const blackFloor = Math.min(34, background * .18);
+        const target = mode === 'light' ? 253 : 243;
+        const gain = Math.min(3.15, target / Math.max(45, background - blackFloor));
+        const normalized = Math.max(0, lum - blackFloor) * gain;
+        const saturation = Math.max(source[p], source[p + 1], source[p + 2]) -
+          Math.min(source[p], source[p + 1], source[p + 2]);
+        // Stamps, colored text, and highlights are less likely to be paper.
+        const protectColor = clamp((saturation - 20) / 90, 0, .78);
+        value = normalized * (1 - protectColor) + lum * protectColor + sharp;
+        if (saturation < 18 && value > 210) {
+          value += (value - 210) * (mode === 'light' ? .31 : .15);
+        }
       }
       const preserveColor = mode === 'document' || mode === 'light';
-      const colorWeight = mode === 'light' ? .63 : .93;
+      const colorWeight = mode === 'light' ? .83 : 1;
       result[p] = value + (preserveColor ? (source[p] - lum) * colorWeight : 0);
       result[p + 1] = value + (preserveColor ? (source[p + 1] - lum) * colorWeight : 0);
       result[p + 2] = value + (preserveColor ? (source[p + 2] - lum) * colorWeight : 0);

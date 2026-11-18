@@ -24,4 +24,6 @@ npm test
 
 ## Detección y filtrado
 
-jscanify aporta el contorno de referencia. OpenCV evalúa candidatos por bordes y luminosidad, corrige la perspectiva con interpolación cúbica y genera filtros con contraste local. La exportación vuelve a procesar las fotos originales a hasta 3100 píxeles de lado mayor, sin ampliar archivos pequeños. Los algoritmos y sus licencias están detallados en [THIRD-PARTY-NOTICES](vendor/THIRD-PARTY-NOTICES.txt). El motor y las dependencias se sirven desde el mismo sitio.
+jscanify aporta el contorno de referencia. OpenCV propone otros candidatos con bordes de varios contrastes y un umbral de luminosidad. El motor verifica que el cambio entre el papel y el fondo se mantenga a lo largo de los cuatro lados, ajusta las rectas a resolución más alta y aplica un margen interior mínimo al recorte automático. Si la detección no es clara, pide confirmar las esquinas antes de exportar.
+
+La transformación de perspectiva usa interpolación cúbica. Documento y Papel blanco estiman la luz sobre cada zona de la hoja y corrigen el contraste y la nitidez, con protección para tinta de color. La exportación vuelve a procesar las fotos originales a hasta 3100 píxeles de lado mayor, sin ampliar archivos pequeños. Los algoritmos y sus licencias están detallados en [THIRD-PARTY-NOTICES](vendor/THIRD-PARTY-NOTICES.txt). El motor y las dependencias se sirven desde el mismo sitio.
