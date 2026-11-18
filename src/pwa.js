@@ -1,17 +1,25 @@
 export function manageUpdates({ canReload, onUpdate }) {
   if (!('serviceWorker' in navigator) || !import.meta.env.PROD) return;
-  let registration, reloading = false;
-  const controlledAtStart = Boolean(navigator.serviceWorker.controller);
+  let registration, reloading = false, needsReload = false;
+  let hadController = Boolean(navigator.serviceWorker.controller);
 
   function useUpdate() {
-    if (!registration?.waiting || !canReload()) return;
-    registration.waiting.postMessage('activate');
+    if (!canReload() || reloading) return;
+    if (needsReload) {
+      reloading = true;
+      location.reload();
+      return;
+    }
+    registration?.waiting?.postMessage('activate');
   }
 
   navigator.serviceWorker.addEventListener('controllerchange', () => {
-    if (!controlledAtStart || reloading || !canReload()) return;
-    reloading = true;
-    location.reload();
+    if (!hadController) {
+      hadController = true;
+      return;
+    }
+    needsReload = true;
+    onUpdate(useUpdate);
   });
 
   navigator.serviceWorker.register(new URL('sw.js', document.baseURI), { updateViaCache: 'none' }).then(result => {
