@@ -1,0 +1,17 @@
+Escanercillo includes the following third-party software and adaptations.
+
+jscanify, Copyright (c) 2023 ColonelParrot and contributors. MIT.
+https://github.com/puffinsoft/jscanify/tree/954863b80e8407bbd2a659fcba6583ce3176a419
+The upstream browser build is included as jscanify.js.
+
+react-perspective-cropper, Copyright (c) 2020 Giacomo Cerquone. MIT.
+https://github.com/giacomocerquone/react-perspective-cropper/tree/b1d2756b914d835af6fb79b954e54f939a577bb7
+The four-point OpenCV transform workflow was adapted for a browser worker
+with Euclidean sizing, cubic interpolation and normalized coordinates.
+
+AndroidDocumentFilter, by Naman Garg. Apache License 2.0.
+https://github.com/garg-lucifer/AndroidDocumentFilter/tree/971a0fa8e6d637a32cecf6d985810c039fc3ee47
+The illumination estimation approach from ShadowRemovelFilter was adapted
+to a downsampled luminance map with an independent normalization pipeline.
+
+OpenCV.js and pdf-lib are installed from npm. See the package licenses.

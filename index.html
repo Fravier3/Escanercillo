@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#101b30">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-opaque">
+  <meta name="description" content="Escanea y corrige documentos en tu dispositivo. Guarda varias páginas en un PDF.">
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png">
+  <link rel="icon" type="image/png" href="./icons/icon-192.png">
+  <title>Escanercillo</title>
+</head>
+<body>
+  <header class="masthead">
+    <div class="mast-inner">
+      <a class="brand" href="./" aria-label="Escanercillo, inicio">
+        <img src="./icons/icon-192.png" alt="" width="36" height="36">
+        <span>Escanercillo</span>
+      </a>
+      <span class="local-tag"><i></i> Procesamiento local</span>
+    </div>
+  </header>
+  <main class="workspace">
+    <section id="home" class="home">
+      <div class="intro">
+        <div class="eyebrow">ESCÁNER DE DOCUMENTOS</div>
+        <h1>Escanea tus<br>documentos<span>.</span></h1>
+        <p>Captura tus hojas, corrige los bordes automáticamente y guárdalas en un solo PDF.</p>
+        <div class="actions">
+          <button id="scan" class="primary">Escanear ahora</button>
+          <button id="import" class="secondary">Importar fotos</button>
+        </div>
+      </div>
+      <div class="visual" aria-hidden="true">
+        <div class="back-paper"></div>
+        <div class="paper"><div class="fold"></div><i></i><i></i><i></i><i></i><i></i><i></i></div>
+        <div class="brackets"><i></i><i></i><i></i><i></i></div>
+        <div class="scan-line"></div>
+      </div>
+    </section>
+    <section id="editing" hidden aria-label="Documento en edición">
+      <div class="edit-header">
+        <div><div class="eyebrow">DOCUMENTO</div><h1>Revisar escaneo</h1></div>
+        <button id="add" class="secondary">Añadir páginas</button>
+      </div>
+      <div class="editor-grid">
+        <section class="preview-shell" aria-label="Vista previa">
+          <div id="preview" class="preview"></div>
+          <div class="preview-bar">
+            <span id="page-label"></span>
+            <button id="crop" class="text-btn">Ajustar bordes</button>
+          </div>
+        </section>
+        <section class="editor-controls" aria-label="Ajustes de escaneo">
+          <h2>Filtro</h2>
+          <div id="filters" class="filters"></div>
+          <h2>Páginas <span id="page-count"></span></h2>
+          <div id="pages" class="pages"></div>
+          <div class="page-actions">
+            <button id="left" class="text-btn">Mover antes</button>
+            <button id="right" class="text-btn">Mover después</button>
+            <button id="rotate" class="text-btn">Girar</button>
+            <button id="remove" class="text-btn danger">Quitar</button>
+          </div>
+          <button id="export" class="primary export">Guardar PDF</button>
+          <div id="result" class="result" hidden></div>
+        </section>
+      </div>
+    </section>
+    <p id="status" role="status" aria-live="polite" hidden></p>
+  </main>
+  <footer class="footer">Tus fotos permanecen en este dispositivo. <span id="version">v1.0</span></footer>
+  <input id="photo-input" type="file" accept="image/*" multiple hidden>
+  <input id="camera-input" type="file" accept="image/*" capture="environment" hidden>
+  <dialog id="add-dialog">
+    <div class="dialog-title"><h2>Añadir páginas</h2><button class="close" aria-label="Cerrar" data-close>×</button></div>
+    <div class="dialog-actions">
+      <button id="add-camera" class="primary">Tomar foto</button>
+      <button id="add-import" class="secondary">Importar fotos</button>
+    </div>
+  </dialog>
+  <dialog id="camera-dialog">
+    <div class="dialog-title"><h2>Cámara</h2><button class="close" aria-label="Cerrar" data-close>×</button></div>
+    <video id="video" muted autoplay playsinline></video>
+    <div class="dialog-actions">
+      <button id="capture" class="primary" disabled>Capturar</button>
+      <button id="native-camera" class="secondary">Cámara del dispositivo</button>
+    </div>
+  </dialog>
+  <dialog id="crop-dialog">
+    <div class="dialog-title"><h2>Ajustar bordes</h2><button class="close" aria-label="Cerrar" data-close>×</button></div>
+    <p class="dialog-help">Arrastra las cuatro esquinas hasta el borde de la hoja.</p>
+    <div id="crop-stage" class="crop-stage"></div>
+    <div class="dialog-actions">
+      <button id="crop-apply" class="primary">Aplicar recorte</button>
+      <button id="crop-reset" class="secondary">Imagen completa</button>
+    </div>
+  </dialog>
+  <script type="module" src="./src/app.js"></script>
+</body>
+</html>
