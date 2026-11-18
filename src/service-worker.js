@@ -3,6 +3,9 @@ const scope = self.registration.scope;
 const prefix = 'escanercillo-' + scope + '-';
 const name = prefix + version;
 const urls = new Set(paths.map(path => new URL(path, scope).href));
+// Only immutable, same-origin build files are cached here. Match the cached
+// bytes even if module requests carry different Origin headers from precache.
+const staticMatch = { ignoreVary: true };
 
 self.addEventListener('install', event => {
   event.waitUntil(caches.open(name).then(cache => cache.addAll(
@@ -31,13 +34,13 @@ self.addEventListener('fetch', event => {
     return;
   }
   if (urls.has(request.url)) {
-    event.respondWith(caches.open(name).then(async cache => (await cache.match(request)) ?? fetch(request)));
+    event.respondWith(caches.open(name).then(async cache => (await cache.match(request, staticMatch)) ?? fetch(request)));
     return;
   }
   if (/\/(?:assets\/|engine-[a-f0-9]+\/)/.test(new URL(request.url).pathname)) {
     event.respondWith((async () => {
       for (const key of (await caches.keys()).filter(key => key.startsWith(prefix)).reverse()) {
-        const match = await (await caches.open(key)).match(request);
+        const match = await (await caches.open(key)).match(request, staticMatch);
         if (match) return match;
       }
       return fetch(request);

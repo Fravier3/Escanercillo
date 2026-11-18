@@ -72,6 +72,7 @@ function renderState() {
   editing.hidden = !page;
   if (!page) {
     ++revision;
+    if (!busy) pendingUpdate?.();
     return;
   }
   element('page-label').textContent = 'Página ' + (active + 1) + ' de ' + pages.length;

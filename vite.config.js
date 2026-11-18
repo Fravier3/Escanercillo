@@ -36,8 +36,11 @@ function localScanner() {
         this.emitFile({ type: 'asset', fileName: folder + '/' + name, source });
       }
       const paths = [...new Set(['index.html', ...Object.keys(bundle), ...staticFiles, ...Array.from(runtimeFiles.keys(), name => folder + '/' + name)])];
-      const version = createHash('sha256').update(paths.join('|')).digest('hex').slice(0, 12);
       const worker = readFileSync(new URL('./src/service-worker.js', import.meta.url), 'utf8');
+      const release = createHash('sha256').update(paths.join('|')).update(worker);
+      release.update(readFileSync(new URL('./index.html', import.meta.url)));
+      for (const path of staticFiles) release.update(readFileSync(new URL('./public/' + path, import.meta.url)));
+      const version = release.digest('hex').slice(0, 12);
       this.emitFile({
         type: 'asset',
         fileName: 'sw.js',
